@@ -13,8 +13,27 @@ One static page. No build step, no package manager, no dependencies beyond two C
 ```
 index.html    the entire site — head/meta + JSON-LD, <style>, sections, one <script>
 images/       logo, photos, metastatic ribbon
+scripts/      RSS -> episode-card sync (stdlib Python, run by CI only)
 CLAUDE.md     working notes for editing this file safely
 ```
+
+## New episodes publish themselves
+
+A GitHub Action checks the podcast's RSS feed every day at 14:00 UTC. When a new episode
+appears it adds the card, updates the "EP. NN" hero badge and episode counter, trims the
+oldest card, and pushes — the live site follows a few minutes later. Nothing to run by hand.
+
+Existing cards are never rewritten, so any blurb you polish stays polished.
+
+To see what it would do, or to run it early:
+
+```powershell
+python scripts/update_episodes.py --dry-run
+```
+
+Optional: add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` under
+**Settings → Secrets and variables → Actions** so new cards deep-link to the exact Spotify
+episode instead of the show page.
 
 ## Preview locally
 

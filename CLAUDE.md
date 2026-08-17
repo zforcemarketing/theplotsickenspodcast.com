@@ -131,7 +131,46 @@ Button classes: `.btn-gold`, `.btn-gold-bright` (header LISTEN NOW), `.btn-outli
 - Episode cadence copy is "every other week" / "bi-weekly-ish, health permitting" — keep the
   health caveat.
 
-## Adding an episode
+## Automatic episode updates
+
+`.github/workflows/update-episodes.yml` runs `scripts/update_episodes.py` daily (14:00 UTC)
+and pushes straight to `main`; Pages redeploys itself. **Adding an episode is normally hands-off
+— the steps below are the manual fallback.**
+
+The script reads the Anchor RSS feed (`https://anchor.fm/s/f5983dc0/podcast/rss`, discovered via
+Apple's lookup API for podcast id `1817231716`) and:
+
+- adds a card for any episode numbered **higher** than the highest already on the page,
+- demotes the previous `· NEW` badge to that episode's publish date,
+- updates the hero `EP. NN` badge and the `NN+ EPISODES REVIEWED` counter (never downward),
+- trims `#epTrack` back to `MAX_CARDS` (5).
+
+**It only ever prepends.** Existing cards are never rewritten, so hand-polished blurbs and
+one-off badges (ep 27's `· 1-YR ANNIVERSARY`) survive. If you improve a generated blurb by hand,
+your version sticks.
+
+Card blurbs are auto-derived from the RSS `<description>` — one or two sentences, capped at 200
+chars, tags stripped, entities decoded. That reads like show notes rather than the hand-written
+voice of the older cards; editing the blurb afterwards is expected and safe.
+
+**Per-platform links.** Apple episode URLs come free from the iTunes lookup API. Spotify episode
+URLs are *not* in the feed — its `<link>` points at the creators.spotify.com backend — so they
+need `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` repo secrets. Without them the script omits
+`data-spotify` and the modal falls back to the show-level URL, which is already the documented
+`data-listen` contract. Cards generated without credentials use the Apple icon on the play button.
+
+Test changes without touching the live page:
+
+```powershell
+python scripts/update_episodes.py --dry-run              # report only
+python scripts/update_episodes.py --index path\to\copy   # write to a scratch copy
+```
+
+Because the script anchors on `<div id="epTrack">`, the `<!-- Episode NN -->` comment before each
+card, and the `EPISODE NN` ticket-badge text, **those three are load-bearing** — renaming them
+breaks the sync silently.
+
+## Adding an episode (manual fallback)
 
 1. Copy the newest `.episode-card` block to the front of `#epTrack`, updating the overlay `<a>`,
    the play button `<a>`, episode number, title, blurb, and `1H 14M · NEW` runtime/date line.
@@ -145,5 +184,7 @@ Button classes: `.btn-gold`, `.btn-gold-bright` (header LISTEN NOW), `.btn-outli
 
 ## Open `[[NEEDS_INPUT]]`
 
-- **Per-episode Apple Podcasts links** for eps 32, 31, 30, 29, and the **Spotify link for ep 27**,
-  so both modal buttons land on the exact episode instead of the show page.
+- **Spotify link for ep 27**, so both modal buttons land on the exact episode instead of the show
+  page. (Apple links for eps 32–29 were backfilled from the iTunes lookup API.)
+- **`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`** repo secrets — optional, but without them
+  auto-generated episode cards link to the Spotify show page rather than the episode.

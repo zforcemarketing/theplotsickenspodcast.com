@@ -13,3 +13,7 @@ Desktop.ini
 node_modules/
 .cache/
 *.log
+
+# Python bytecode from running scripts/update_episodes.py locally
+__pycache__/
+*.py[cod]

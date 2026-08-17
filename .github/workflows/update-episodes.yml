@@ -1,0 +1,67 @@
+name: Update episodes
+
+# Checks the podcast RSS feed once a day. If a new episode has dropped, adds its card
+# to index.html and pushes — GitHub Pages redeploys on its own.
+on:
+  schedule:
+    - cron: "0 14 * * *"   # 14:00 UTC daily
+  workflow_dispatch:        # or run it by hand from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-episodes
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync episode carousel with RSS
+        id: sync
+        env:
+          # Optional. Without these, new cards link to the Spotify *show* page instead of
+          # the exact episode. Add them under Settings > Secrets > Actions to upgrade.
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+        run: python scripts/update_episodes.py
+
+      - name: Commit and push
+        if: steps.sync.outputs.updated == 'true'
+        env:
+          SUMMARY: ${{ steps.sync.outputs.summary }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Add ${SUMMARY}" -m "Generated from the RSS feed by .github/workflows/update-episodes.yml"
+          git push
+
+      # A scheduled workflow is disabled automatically after 60 days without repo activity.
+      # The show records every other week "health permitting", so a longer hiatus is realistic —
+      # this monthly no-op commit keeps the cron alive through one.
+      - name: Monthly keepalive
+        if: steps.sync.outputs.updated != 'true' && github.event_name == 'schedule'
+        run: |
+          if [ "$(date -u +%d)" != "01" ]; then
+            echo "Not the 1st — nothing to do."
+            exit 0
+          fi
+          mkdir -p .github
+          date -u +"Last checked the RSS feed: %Y-%m-%d" > .github/last-check
+          if git diff --quiet -- .github/last-check; then
+            echo "Keepalive file unchanged."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last-check
+          git commit -m "Keepalive: RSS checked, no new episode"
+          git push
