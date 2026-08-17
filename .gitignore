@@ -1,0 +1,15 @@
+# OS junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Local tooling scratch (no build step in this project)
+node_modules/
+.cache/
+*.log
