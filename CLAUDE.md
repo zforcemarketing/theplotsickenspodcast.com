@@ -153,11 +153,23 @@ Card blurbs are auto-derived from the RSS `<description>` — one or two sentenc
 chars, tags stripped, entities decoded. That reads like show notes rather than the hand-written
 voice of the older cards; editing the blurb afterwards is expected and safe.
 
-**Per-platform links.** Apple episode URLs come free from the iTunes lookup API. Spotify episode
-URLs are *not* in the feed — its `<link>` points at the creators.spotify.com backend — so they
-need `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` repo secrets. Without them the script omits
-`data-spotify` and the modal falls back to the show-level URL, which is already the documented
-`data-listen` contract. Cards generated without credentials use the Apple icon on the play button.
+**Per-platform links.** Both come free, with no credentials.
+
+Apple episode URLs come from the iTunes lookup API. Spotify episode URLs are *not* in the feed —
+its `<link>` points at the creators.spotify.com backend — so `scrape_spotify_links()` reads the
+public show page instead: `open.spotify.com/show/<id>` server-renders its ~12 most recent episodes
+into a base64 `<script id="initialState">` blob holding each episode's name and `spotify:episode:`
+URI. Matched to feed titles through the same `normalize()` key as the Apple links. It needs a
+browser-shaped `User-Agent` (`BROWSER_UA`) — Spotify serves a stub page otherwise.
+
+This replaced the Web API path because **since February 2026 Spotify requires the account
+registering a developer app to hold Premium**, which put `SPOTIFY_CLIENT_ID` /
+`SPOTIFY_CLIENT_SECRET` out of reach. `fetch_spotify_links_api()` is still there and still works
+if those secrets are ever set — `fetch_spotify_links()` tries the scrape first and falls back to it.
+
+If both paths come up empty the script omits `data-spotify` and the modal falls back to the
+show-level URL, which is already the documented `data-listen` contract; those cards use the Apple
+icon on the play button. So a Spotify redesign degrades the links, it does not break the build.
 
 Test changes without touching the live page:
 
@@ -179,12 +191,14 @@ breaks the sync silently.
 3. Move `· NEW` off the previous top card and give it a date.
 4. Update the hero badge `🎬 NEW EPISODE OUT NOW — EP. 32` ([index.html:423](index.html#L423)) and
    the `30+ EPISODES REVIEWED` trust line if the count crosses a round number.
-5. The oldest card is currently ep 27 (Apple-only link) — trim the track rather than letting it grow
-   unbounded.
+5. Trim the track rather than letting it grow unbounded — the oldest card is currently ep 27.
 
 ## Open `[[NEEDS_INPUT]]`
 
-- **Spotify link for ep 27**, so both modal buttons land on the exact episode instead of the show
-  page. (Apple links for eps 32–29 were backfilled from the iTunes lookup API.)
-- **`SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`** repo secrets — optional, but without them
-  auto-generated episode cards link to the Spotify show page rather than the episode.
+None outstanding. Both former items are closed:
+
+- Ep 27's Spotify link was backfilled from the public show page, so every card on the page now
+  carries both `data-spotify` and `data-apple`.
+- The `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` secrets are no longer needed — see
+  "Per-platform links" above. Do not re-add them as a request; they now require a paid Premium
+  account and buy nothing the scrape does not already provide.

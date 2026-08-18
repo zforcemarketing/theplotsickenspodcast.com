@@ -35,7 +35,11 @@ APPLE_PODCAST_ID = "1817231716"
 SPOTIFY_SHOW_ID = "38xOqaOpRi8lMpDoZJsM51"
 
 SHOW_SPOTIFY_URL = f"https://open.spotify.com/show/{SPOTIFY_SHOW_ID}"
+SPOTIFY_EPISODE_BASE = "https://open.spotify.com/episode/"
 SHOW_APPLE_URL = f"https://podcasts.apple.com/us/podcast/the-plot-sickens/id{APPLE_PODCAST_ID}"
+
+# The public show page returns its full HTML only to a browser-shaped User-Agent.
+BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
 
 # Keep the carousel from growing without bound (see CLAUDE.md "Adding an episode").
 MAX_CARDS = 5
@@ -116,9 +120,61 @@ def fetch_apple_links():
     return links
 
 
-def fetch_spotify_links():
+def scrape_spotify_links():
     """
-    Map normalized episode title -> open.spotify.com episode URL.
+    Map normalized episode title -> open.spotify.com episode URL, without credentials.
+
+    The public show page server-renders its most recent episodes into a base64
+    <script id="initialState"> blob carrying each episode's name and spotify:episode:
+    URI. That is far more than this script ever needs, and unlike the Web API it needs
+    no client id/secret -- Spotify has required the account registering a developer app
+    to hold Premium since February 2026.
+
+    Returns {} on any failure, so main() falls back to the show-level URL.
+    """
+    try:
+        page = fetch(
+            SHOW_SPOTIFY_URL,
+            headers={"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.9"},
+        ).decode("utf-8", "replace")
+        blob = re.search('<script id="initialState"[^>]*>(.*?)</script>', page, re.S)
+        if not blob:
+            warn("Spotify show page had no initialState blob; falling back to the show page.")
+            return {}
+        data = json.loads(base64.b64decode(blob.group(1).strip()).decode("utf-8"))
+    except (urllib.error.URLError, ValueError, TimeoutError) as exc:
+        warn(f"Spotify show page scrape failed ({exc}); falling back to the show page.")
+        return {}
+
+    links = {}
+
+    def walk(node):
+        if isinstance(node, dict):
+            uri, name = node.get("uri"), node.get("name")
+            if isinstance(uri, str) and uri.startswith("spotify:episode:") and name:
+                links[normalize(name)] = f"{SPOTIFY_EPISODE_BASE}{uri.rsplit(':', 1)[-1]}"
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return links
+
+
+def fetch_spotify_links():
+    """Prefer the credential-free show-page scrape; fall back to the Web API."""
+    links = scrape_spotify_links()
+    if links:
+        note(f"Matched {len(links)} Spotify episode links from the public show page.")
+        return links
+    return fetch_spotify_links_api()
+
+
+def fetch_spotify_links_api():
+    """
+    Same mapping via the official Web API. Fallback for when the scrape stops working.
 
     Needs SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET because the RSS <link> points at
     the creators.spotify.com backend, not the public episode page. Without credentials
