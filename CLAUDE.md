@@ -133,7 +133,8 @@ Button classes: `.btn-gold`, `.btn-gold-bright` (header LISTEN NOW), `.btn-outli
 
 ## Automatic episode updates
 
-`.github/workflows/update-episodes.yml` runs `scripts/update_episodes.py` daily (14:00 UTC)
+`.github/workflows/update-episodes.yml` runs `scripts/update_episodes.py` every 6 hours
+(00:00 / 06:00 / 12:00 / 18:00 UTC, though GitHub often starts scheduled runs 15-35 min late)
 and pushes straight to `main`; Pages redeploys itself. **Adding an episode is normally hands-off
 — the steps below are the manual fallback.**
 
