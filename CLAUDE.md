@@ -141,14 +141,25 @@ and pushes straight to `main`; Pages redeploys itself. **Adding an episode is no
 The script reads the Anchor RSS feed (`https://anchor.fm/s/f5983dc0/podcast/rss`, discovered via
 Apple's lookup API for podcast id `1817231716`) and:
 
+- corrects the number on any card the feed has since renumbered (see below),
 - adds a card for any episode numbered **higher** than the highest already on the page,
 - demotes the previous `· NEW` badge to that episode's publish date,
 - updates the hero `EP. NN` badge and the `NN+ EPISODES REVIEWED` counter (never downward),
 - trims `#epTrack` back to `MAX_CARDS` (5).
 
-**It only ever prepends.** Existing cards are never rewritten, so hand-polished blurbs and
-one-off badges (ep 27's `· 1-YR ANNIVERSARY`) survive. If you improve a generated blurb by hand,
-your version sticks.
+**It only ever prepends — with one exception.** Existing cards are never rewritten, so
+hand-polished blurbs and one-off badges (ep 27's `· 1-YR ANNIVERSARY`) survive. If you improve a
+generated blurb by hand, your version sticks.
+
+The exception is `reconcile_numbers()`, which rewrites **episode-number tokens only** — the
+`<!-- Episode NN -->` comment, the `EPISODE NN` badge, `data-listen-title`, the two `aria-label`s,
+and the Apple slug. Prose is never touched. It exists because publishers renumber: ep 34
+*Patch Adams* went out as "Episode 35" on 2026-09-07, was corrected to 34 in the feed, and the
+page kept the inflated number. Since new cards are only added *above* the page's highest number,
+that one bad card silently blocked every future episode — ep 35 could never be added. Titles are
+the stable identity across a renumber, so the card is matched by title and re-labelled. A renumber
+alone now counts as a change worth committing, so the script writes and the workflow pushes even
+when no new episode dropped.
 
 Card blurbs are auto-derived from the RSS `<description>` — one or two sentences, capped at 200
 chars, tags stripped, entities decoded. That reads like show notes rather than the hand-written
@@ -190,9 +201,9 @@ breaks the sync silently.
 2. Set `data-spotify` and/or `data-apple` (plus `data-listen-title`) on **both** anchors, and put
    the same URL in each anchor's `href`.
 3. Move `· NEW` off the previous top card and give it a date.
-4. Update the hero badge `🎬 NEW EPISODE OUT NOW — EP. 32` ([index.html:423](index.html#L423)) and
+4. Update the hero badge `🎬 NEW EPISODE OUT NOW — EP. 35` ([index.html:423](index.html#L423)) and
    the `30+ EPISODES REVIEWED` trust line if the count crosses a round number.
-5. Trim the track rather than letting it grow unbounded — the oldest card is currently ep 27.
+5. Trim the track rather than letting it grow unbounded — the oldest card is currently ep 31.
 
 ## Open `[[NEEDS_INPUT]]`
 

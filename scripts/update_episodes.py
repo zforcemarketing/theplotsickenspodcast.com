@@ -276,6 +276,8 @@ def make_blurb(description):
     text = html.unescape(text)
     text = text.replace("’", "'").replace("“", '"').replace("”", '"')
     text = re.sub(r"\s+", " ", text).strip()
+    # Tags become spaces above, so "<em>title</em>," leaves "title ," — close that gap back up.
+    text = re.sub(r"\s+([,.!?;:])", r"\1", text)
     if not text:
         return ""
 
@@ -389,6 +391,58 @@ def card_number(block):
     return int(match.group(1)) if match else None
 
 
+def card_title(block):
+    match = re.search(r'<h3[^>]*>(.*?)</h3>', block, re.S)
+    return html.unescape(re.sub(r"\s+", " ", match.group(1))).strip() if match else ""
+
+
+def renumber_card(block, old, new):
+    """Rewrite only the episode-number tokens in a card, leaving its prose untouched."""
+    swaps = (
+        (rf"(<!-- Episode\s+){old}(\s*-->)", rf"\g<1>{new}\g<2>"),
+        (rf'(class="ticket-badge[^"]*"[^>]*>\s*EPISODE\s+){old}\b', rf"\g<1>{new}"),
+        (rf"(data-listen-title=\"Episode\s+){old}(\s*·)", rf"\g<1>{new}\g<2>"),
+        (rf"(aria-label=\"Listen to Episode\s+){old}(:)", rf"\g<1>{new}\g<2>"),
+        (rf"(aria-label=\"Play Episode\s+){old}\b", rf"\g<1>{new}"),
+        (rf"(/podcast/episode-){old}(-)", rf"\g<1>{new}\g<2>"),
+    )
+    for pattern, replacement in swaps:
+        block = re.sub(pattern, replacement, block)
+    return block
+
+
+def reconcile_numbers(blocks, episodes):
+    """
+    Correct cards whose episode number the feed has since changed.
+
+    Publishers do renumber (an episode goes out as 35, then gets fixed to 34). Because
+    new cards are only ever added *above* the highest number on the page, a card left
+    sitting on an inflated number silently blocks every future episode. Titles are the
+    stable identity across a renumber, so trust them and re-label the card.
+    """
+    by_title = {normalize(e["title"]): e["number"] for e in episodes if e["number"]}
+    taken = {n for n in (card_number(b) for b in blocks) if n}
+    changes = []
+
+    for index, block in enumerate(blocks):
+        old = card_number(block)
+        title = card_title(block)
+        if not old or not title:
+            continue
+        new = by_title.get(normalize(title))
+        if not new or new == old:
+            continue
+        if new in taken:
+            warn(f"EP {old} '{title}' is #{new} in the feed, but a card already holds {new}; left alone.")
+            continue
+        blocks[index] = renumber_card(block, old, new)
+        taken.discard(old)
+        taken.add(new)
+        changes.append(f"EP {old} -> {new} ({title})")
+
+    return blocks, changes
+
+
 def demote_new_badge(blocks, by_number):
     """Replace the previous card's '· NEW' with its publish date."""
     for index, block in enumerate(blocks):
@@ -463,36 +517,44 @@ def main():
     existing = {n for n in (card_number(b) for b in blocks) if n}
     print(f"  {len(blocks)} cards on the page: {sorted(existing, reverse=True)}")
 
+    blocks, renumbered = reconcile_numbers(blocks, episodes)
+    for change in renumbered:
+        print(f"  ~ renumbered {change}")
+    if renumbered:
+        existing = {n for n in (card_number(b) for b in blocks) if n}
+
     missing = [e for e in episodes if e["number"] and e["number"] not in existing]
     # Only add episodes newer than what's on the page; don't backfill the archive.
     highest = max(existing) if existing else 0
     missing = [e for e in missing if e["number"] > highest]
 
-    if not missing:
+    if not missing and not renumbered:
         print("Already up to date. Nothing to do.")
         return 0
 
-    print(f"New episodes: {[e['number'] for e in missing]}")
-    apple_links = fetch_apple_links()
-    spotify_links = fetch_spotify_links()
     by_number = {e["number"]: e for e in episodes if e["number"]}
 
-    blocks = demote_new_badge(blocks, by_number)
+    if missing:
+        print(f"New episodes: {[e['number'] for e in missing]}")
+        apple_links = fetch_apple_links()
+        spotify_links = fetch_spotify_links()
 
-    # Oldest of the new batch first, so repeated prepends leave newest on top.
-    for index, episode in enumerate(sorted(missing, key=lambda e: e["number"])):
-        key = normalize(episode["raw_title"])
-        spotify_url = spotify_links.get(key)
-        apple_url = apple_links.get(key)
-        is_newest = index == len(missing) - 1
+        blocks = demote_new_badge(blocks, by_number)
 
-        card = build_card(episode, spotify_url, apple_url, is_newest)
-        blocks.insert(0, card)
+        # Oldest of the new batch first, so repeated prepends leave newest on top.
+        for index, episode in enumerate(sorted(missing, key=lambda e: e["number"])):
+            key = normalize(episode["raw_title"])
+            spotify_url = spotify_links.get(key)
+            apple_url = apple_links.get(key)
+            is_newest = index == len(missing) - 1
 
-        platforms = ", ".join(p for p, v in (("Spotify", spotify_url), ("Apple", apple_url)) if v) or "show-level fallback"
-        print(f"  + EP {episode['number']} {episode['title']!r} [{episode['runtime']}] ({platforms})")
-        if not episode["blurb"]:
-            warn(f"EP {episode['number']} has no description in the feed; blurb is empty.")
+            card = build_card(episode, spotify_url, apple_url, is_newest)
+            blocks.insert(0, card)
+
+            platforms = ", ".join(p for p, v in (("Spotify", spotify_url), ("Apple", apple_url)) if v) or "show-level fallback"
+            print(f"  + EP {episode['number']} {episode['title']!r} [{episode['runtime']}] ({platforms})")
+            if not episode["blurb"]:
+                warn(f"EP {episode['number']} has no description in the feed; blurb is empty.")
 
     dropped = blocks[MAX_CARDS:]
     blocks = blocks[:MAX_CARDS]
@@ -502,7 +564,8 @@ def main():
     cards = "\n\n".join(b.lstrip("\n").rstrip() for b in blocks)
     page = f"{before}\n\n{cards}\n\n        {after}"
 
-    newest_number = max(e["number"] for e in missing)
+    on_page = [n for n in (card_number(b) for b in blocks) if n]
+    newest_number = max(on_page) if on_page else None
     page, counter_changes = update_counters(page, newest_number, len(episodes))
     for change in counter_changes:
         print(f"  ~ {change}")
@@ -514,8 +577,11 @@ def main():
     index_path.write_bytes(page.replace("\n", newline).encode("utf-8"))
     print(f"\nWrote {index_path}")
 
-    # Hand the episode list to the workflow for its commit message.
-    summary = ", ".join(f"EP {e['number']} {e['title']}" for e in sorted(missing, key=lambda e: -e["number"]))
+    # Hand the workflow a ready-made commit subject.
+    if missing:
+        summary = "Add " + ", ".join(f"EP {e['number']} {e['title']}" for e in sorted(missing, key=lambda e: -e["number"]))
+    else:
+        summary = "Correct episode numbering: " + "; ".join(renumbered)
     if step_output := os.environ.get("GITHUB_OUTPUT"):
         with open(step_output, "a", encoding="utf-8") as fh:
             fh.write(f"updated=true\nsummary={summary}\n")
