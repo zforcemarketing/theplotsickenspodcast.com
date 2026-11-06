@@ -76,6 +76,11 @@ def fetch_feed():
         title = text_of(item.find("title"))
         if not title:
             continue
+        # The number in the title is what listeners see, so it wins a disagreement:
+        # "Halloween Special Episode 37: Nocebo" went out tagged <itunes:episode>27.
+        titled = re.search(r"\bepisode\s*(\d+)\b", title, flags=re.IGNORECASE)
+        if titled:
+            number = titled.group(1)
         try:
             published = parsedate_to_datetime(text_of(item.find("pubDate")))
         except (TypeError, ValueError):

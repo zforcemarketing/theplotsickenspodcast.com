@@ -161,6 +161,11 @@ the stable identity across a renumber, so the card is matched by title and re-la
 alone now counts as a change worth committing, so the script writes and the workflow pushes even
 when no new episode dropped.
 
+The same failure happens in reverse when the `<itunes:episode>` tag is mistyped low: "Halloween
+Special Episode 37: Nocebo" (2026-10-31) went out tagged `27`, fell below the page's highest
+number, and was silently skipped for five days. So `fetch_feed()` takes the number from an
+`Episode NN` in the title when there is one, and only falls back to the tag otherwise.
+
 Card blurbs are auto-derived from the RSS `<description>` — one or two sentences, capped at 200
 chars, tags stripped, entities decoded. That reads like show notes rather than the hand-written
 voice of the older cards; editing the blurb afterwards is expected and safe.
